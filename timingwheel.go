@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+// Timer represents a single delayed task. When it expires, the task will be
+// executed.
+type Timer struct {
+	Delay time.Duration // how long to wait before execution
+	Round int           // how many full rotations left
+	Slot  int           // which slot it's placed in
+	Task  func()        // the actual function to run
+}
+
 // TimingWheel is an implementation of Hierarchical Timing Wheels.
 type TimingWheel struct {
 	tickDuration time.Duration // duration of each tick
@@ -64,6 +73,24 @@ func (tw *TimingWheel) AddTimer(delay time.Duration, task func()) {
 	tw.addTimerCh <- timer
 }
 
+func (tw *TimingWheel) addTimer(timer *Timer) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+
+	ticks := int(timer.Delay / tw.tickDuration)
+	if ticks == 0 {
+		ticks = 1
+	}
+
+	slot := (tw.currentPos + ticks) % tw.wheelSize
+	round := ticks / tw.wheelSize
+
+	timer.Slot = slot
+	timer.Round = round
+
+	tw.slots[slot] = append(tw.slots[slot], timer)
+}
+
 func (tw *TimingWheel) handleTick() {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
@@ -85,22 +112,4 @@ func (tw *TimingWheel) handleTick() {
 	tw.slots[tw.currentPos] = remainingTimers
 	// Move to the next slot
 	tw.currentPos = (tw.currentPos + 1) % tw.wheelSize
-}
-
-func (tw *TimingWheel) addTimer(timer *Timer) {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-
-	ticks := int(timer.Delay / tw.tickDuration)
-	if ticks == 0 {
-		ticks = 1
-	}
-
-	slot := (tw.currentPos + ticks) % tw.wheelSize
-	round := ticks / tw.wheelSize
-
-	timer.Slot = slot
-	timer.Round = round
-
-	tw.slots[slot] = append(tw.slots[slot], timer)
 }
